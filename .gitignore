@@ -1,0 +1,10 @@
+data/sif-mcp.local.enc
+data/ai-model.local.enc
+node_modules/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+npm-debug.log*

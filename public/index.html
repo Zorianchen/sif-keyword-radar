@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="基于 SIF MCP 的 Amazon ASIN 关键词与竞品联查工作台" />
+    <title>SIF Keyword Radar · 流量词雷达</title>
+    <link rel="stylesheet" href="/styles.css?v=28" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="返回顶部">
+        <span class="brand-mark" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </span>
+        <span>
+          <strong>KEYWORD / RADAR</strong>
+          <small>Powered by SIF MCP</small>
+        </span>
+      </a>
+      <div class="top-actions">
+        <span class="connection"><i></i><b id="connection-label">MCP 快照已就绪</b></span>
+        <button class="config-button history-open" id="history-open" type="button" aria-label="查询历史" aria-haspopup="dialog" aria-controls="history-modal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2M5 4v4h4"/></svg>
+          <span>查询历史</span><b id="history-count">0</b>
+        </button>
+        <button class="config-button" id="config-open" type="button" aria-label="SIF MCP 配置" aria-haspopup="dialog" aria-controls="config-modal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="12" r="3"/><path d="M11 12h9m-3 0v3m-3-3v2"/></svg>
+          <span>MCP 配置</span>
+        </button>
+        <button class="config-button ai-config-open" id="ai-config-open" type="button" aria-label="AI 模型配置" aria-haspopup="dialog" aria-controls="ai-config-modal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"/><path d="M18.5 16l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg>
+          <span>AI 模型</span><b id="ai-nav-state">未配置</b>
+        </button>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.91-.1-1.35A6.5 6.5 0 0 1 12.35 3H12Z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero shell">
+        <div class="hero-copy reveal">
+          <div class="eyebrow"><span id="hero-market">Amazon DE</span><i></i>关键词情报工作台</div>
+          <h1>把大流量<br /><em>筛成精准词。</em></h1>
+          <p>从输入 ASIN 出发，追踪真实流量词，自动发现 3–5 个高相关竞品并联查关键词，再按相关性、搜索量和购买意图分层。</p>
+          <div class="hero-note">
+            <span class="note-number">01</span>
+            <p><strong>相关性先行。</strong> 高搜索量不等于高购买意图，板材大词与搁板精准词将分别评估。</p>
+          </div>
+        </div>
+
+        <form class="query-card reveal" id="query-form">
+          <div class="card-index">QUERY / 01</div>
+          <div class="field full">
+            <label for="product-name">品名 <span>选填，用于语义相关性判断</span></label>
+            <input id="product-name" name="productName" value="" placeholder="例如：吸音板搁板-白-2PC" />
+          </div>
+
+          <div class="field-grid">
+            <div class="field">
+              <label for="country">站点</label>
+              <div class="select-wrap">
+                <select id="country" name="country">
+                  <option value="IT">🇮🇹 意大利 · IT</option>
+                  <option value="DE" selected>🇩🇪 德国 · DE</option>
+                  <option value="FR">🇫🇷 法国 · FR</option>
+                  <option value="ES">🇪🇸 西班牙 · ES</option>
+                  <option value="NL">🇳🇱 荷兰 · NL</option>
+                  <option value="PL">🇵🇱 波兰 · PL</option>
+                  <option value="SE">🇸🇪 瑞典 · SE</option>
+                  <option value="BE">🇧🇪 比利时 · BE</option>
+                  <option value="US">🇺🇸 美国 · US</option>
+                  <option value="UK">🇬🇧 英国 · UK</option>
+                  <option value="CA">🇨🇦 加拿大 · CA</option>
+                </select>
+              </div>
+            </div>
+            <div class="field field-period">
+              <label for="period-mode">时间范围 <span>快速范围 / 自定义月份</span></label>
+              <div class="select-wrap period-mode-wrap">
+                <select id="period-mode" name="periodMode">
+                  <option value="lately:30" selected>最近 30 天</option>
+                  <option value="custom-month">自定义月份 · yyyy-mm</option>
+                </select>
+              </div>
+              <div class="custom-month-panel" id="custom-month-panel" hidden>
+                <label for="period-month">自定义</label>
+                <input id="period-month" name="periodMonth" type="text" value="2026-08" placeholder="yyyy-mm" inputmode="numeric" maxlength="7" autocomplete="off" spellcheck="false" aria-describedby="period-hint" />
+                <span>YYYY-MM</span>
+              </div>
+              <p class="period-hint" id="period-hint"><i></i><span id="period-summary">查询最近 30 天流量数据</span></p>
+            </div>
+          </div>
+
+          <div class="field full">
+            <label for="asin-input">ASIN <span>每行一个，支持空格或逗号</span></label>
+            <textarea id="asin-input" name="asins" rows="3" spellcheck="false" placeholder="每行输入一个 ASIN，例如：B0XXXXXXXX"></textarea>
+            <div class="input-meta"><span id="asin-count">0 个 ASIN</span><button type="button" id="clear-asins">清空</button></div>
+          </div>
+
+          <div class="field full product-detail-field">
+            <label for="product-details">产品补充参数 <span>选填 · 规格、材质、颜色、数量、必须出现的词</span></label>
+            <textarea id="product-details" name="productDetails" rows="3" placeholder="例如：白色，2件装，15 × 8.5 cm，金属材质；必须强调免打孔安装。留空时 AI 仅参考输入商品和竞品标题中的已知事实。"></textarea>
+            <p class="field-note"><i></i>补充参数优先于竞品信息；未填写的商品事实不会由 AI 擅自补全。</p>
+          </div>
+
+          <input id="listing-template" name="listingTemplate" type="hidden" value="operator" />
+
+          <div class="brand-policy-grid">
+            <div class="field">
+              <label for="own-brand">自有品牌 <span>选填 · 唯一品牌白名单</span></label>
+              <input id="own-brand" name="ownBrand" placeholder="例如：你的品牌名" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="forbidden-terms">额外禁用词 <span>选填 · 品牌、侵权词、违规词</span></label>
+              <textarea id="forbidden-terms" name="forbiddenTerms" rows="2" placeholder="每行或逗号分隔；系统还会自动拦截竞品品牌和高风险宣传词。" spellcheck="false"></textarea>
+            </div>
+          </div>
+          <div class="query-actions">
+            <button class="analyze-button" type="submit">
+              <span>开始联查</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+            <button class="quick-export" id="quick-export" type="button" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+              <span>一键导出</span>
+            </button>
+          </div>
+          <p class="form-status" id="form-status" role="status">等待输入 ASIN；点击“开始联查”后加载关键词、竞品和 Listing 数据。</p>
+        </form>
+      </section>
+
+      <section class="loading-stage shell" id="loading-stage" hidden aria-live="polite">
+        <div class="scan-line"></div>
+        <div class="loading-copy">
+          <span id="loading-step">01 / 04</span>
+          <h2 id="loading-title">正在反查输入 ASIN...</h2>
+          <p id="loading-detail">匹配自然流量、广告流量与关键词搜索量</p>
+        </div>
+        <div class="loading-track"><i id="loading-progress"></i></div>
+      </section>
+
+      <section id="results" class="results" hidden>
+        <div class="result-head shell reveal">
+          <div>
+            <div class="eyebrow"><span id="result-market">IT · 查询周期 2026-07-21—2026-08-19</span><i></i><span id="data-date">数据更新 2026-08-19 · T+1</span></div>
+            <h2><em id="result-count">13</em> 个词，已经按意图分层。</h2>
+          </div>
+          <div class="result-actions">
+            <button class="quiet-button" id="copy-selected" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4V4h12v1"/></svg>
+              复制选中词
+            </button>
+            <button class="quiet-button strong" id="export-csv" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+              导出 CSV
+            </button>
+          </div>
+        </div>
+
+        <div class="metric-grid shell" id="metric-grid"></div>
+
+        <div class="insight-strip shell" id="insight-strip"></div>
+
+        <div class="workspace shell">
+          <aside class="workspace-nav" aria-label="结果导航">
+            <span>RESULTS / 02</span>
+            <a class="active" href="#keyword-pool"><i>01</i>关键词池</a>
+            <a href="#listing-copy"><i>02</i>Listing 文案</a>
+            <a href="#competitor-map"><i>03</i>竞品地图</a>
+            <a href="#trend-view"><i>04</i>需求趋势</a>
+            <a href="#source-view"><i>05</i>数据溯源</a>
+          </aside>
+
+          <div class="workspace-main">
+            <section class="panel" id="keyword-pool">
+              <div class="panel-head">
+                <div>
+                  <span class="section-kicker">KEYWORD POOL</span>
+                  <h3>关键词池</h3>
+                  <p id="keyword-pool-copy">先验证商品语义，再按 Listing 词位比较流量与相关性。</p>
+                </div>
+                <div class="legend">
+                  <span><i class="dot precise"></i><b id="legend-precise">标题核心词</b></span>
+                  <span><i class="dot context"></i><b id="legend-context">语义补充词</b></span>
+                  <span><i class="dot tail"></i><b id="legend-tail">五点长尾词</b></span>
+                </div>
+              </div>
+
+              <div class="toolbar">
+                <div class="segmented" id="keyword-tabs" role="tablist" aria-label="关键词分类">
+                  <button class="active" data-filter="recommended" role="tab">推荐词 <b id="recommended-count">0</b></button>
+                  <button data-filter="precise" role="tab">标题词</button>
+                  <button data-filter="context" role="tab">语义补充词</button>
+                  <button data-filter="high" role="tab">高流量</button>
+                  <button data-filter="longtail" role="tab">五点长尾</button>
+                  <button data-filter="exclude" role="tab">排除词</button>
+                  <button data-filter="all" role="tab">全部</button>
+                </div>
+                <label class="search-box">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
+                  <input id="keyword-search" placeholder="搜索关键词" />
+                </label>
+              </div>
+
+              <div class="intent-gate" id="intent-gate" aria-label="Listing 关键词相关性规则">
+                <span id="gate-label">LISTING 相关性门槛</span>
+                <div><b id="gate-left-title">商品语义锚点</b><em id="gate-left-terms">—</em></div>
+                <i>+</i>
+                <div><b id="gate-right-title">SIF 真实流量信号</b><em id="gate-right-terms">自然排名 · 广告排名 · 搜索量</em></div>
+                <i>=</i>
+                <strong id="gate-result">Listing 候选词</strong>
+              </div>
+
+              <div class="table-wrap">
+                <table class="keyword-table">
+                  <thead>
+                    <tr>
+                      <th class="select-cell"><input id="select-all" type="checkbox" aria-label="全选关键词" /></th>
+                      <th data-sort="keyword">关键词</th>
+                      <th data-sort="volume">搜索量</th>
+                      <th data-sort="relevance">产品相关性</th>
+                      <th data-sort="coverage">竞品覆盖</th>
+                      <th>自然占比</th>
+                      <th>建议动作</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="keyword-body"></tbody>
+                </table>
+              </div>
+              <div class="table-foot">
+                <p id="table-caption">显示 0 个关键词</p>
+                <p>数据来自 SIF MCP · 相关性为产品语义与真实 ASIN 覆盖的综合排序</p>
+              </div>
+            </section>
+
+            <section class="panel listing-panel" id="listing-copy">
+              <div class="panel-head">
+                <div>
+                  <span class="section-kicker">LISTING PLACEMENT</span>
+                  <h3>Listing 文案词位</h3>
+                  <p>把真实流量词分配到标题、五点和后台 Search Terms；商品事实词与流量词明确分开。</p>
+                </div>
+                <span class="listing-status" id="listing-status">正在整理</span>
+              </div>
+
+              <div class="listing-grid">
+                <article>
+                  <span>01 / TITLE</span>
+                  <h4>标题核心词</h4>
+                  <p>高相关词优先放在标题前 80 字符，避免堆砌重复词根。</p>
+                  <div class="listing-chips" id="listing-title-keywords"></div>
+                </article>
+                <article>
+                  <span>02 / BULLETS</span>
+                  <h4>五点高相关 / 长尾词</h4>
+                  <p>每点自然嵌入 1–2 个高相关词，完整长尾用于承接属性、场景与购买意图。</p>
+                  <div class="listing-chips" id="listing-bullet-keywords"></div>
+                </article>
+                <article>
+                  <span>03 / SEARCH TERMS</span>
+                  <h4>后台搜索词</h4>
+                  <p>收纳未进入前台文案的相关词；自动排除品牌词和低相关词。</p>
+                  <div class="listing-chips" id="listing-backend-keywords"></div>
+                </article>
+              </div>
+
+              <div class="listing-facts">
+                <div><span>商品事实锚点 · 非流量词</span><strong id="listing-source-title">—</strong></div>
+                <div class="listing-chips facts" id="listing-anchors"></div>
+              </div>
+              <div class="listing-actions">
+                <p id="listing-note">关键词来自 SIF 信号；商品事实来自 ASIN 档案。</p>
+                <button type="button" id="copy-title-keywords">复制标题词</button>
+                <button type="button" id="copy-backend-keywords">复制后台词</button>
+              </div>
+
+              <div class="ai-writer" id="ai-writer">
+                <div class="ai-writer-head">
+                  <div>
+                    <span class="section-kicker">AI LISTING STUDIO</span>
+                    <h4>用真实流量词生成完整 Listing</h4>
+                    <p>查询完成后再按需生成；固定采用运营 Excel 模板：Emoji＋【五点标题】、HTML 长描述和 500 字符后台词，同时过滤竞品品牌与高风险词。</p>
+                  </div>
+                  <div class="ai-writer-action">
+                    <span id="ai-writer-model">AI 尚未配置</span>
+                    <button id="generate-listing" type="button"><i></i><span>生成 Listing</span><b>↗</b></button>
+                  </div>
+                </div>
+                <div class="ai-writer-empty" id="ai-writer-empty">
+                  <strong>等待生成</strong>
+                  <p>先完成关键词联查，再配置 AI。模型只使用已验证关键词和明确商品事实。</p>
+                </div>
+                <div class="ai-listing-output" id="ai-listing-output" hidden>
+                  <div class="ai-strategy">
+                    <span>AI / STRATEGY</span>
+                    <p id="ai-strategy-copy"></p>
+                    <div id="ai-analysis-list"></div>
+                  </div>
+                  <article class="ai-copy-block title-block">
+                    <header><div><span>01 / TITLE</span><h5>标题</h5></div><div class="copy-tools"><em class="copy-count" id="ai-title-count">0 / 200</em><button type="button" data-copy-ai="title">复制</button></div></header>
+                    <p class="ai-copy-content" id="ai-title-copy"></p>
+                    <div class="ai-translation"><span>中文翻译 · 仅供审核</span><p id="ai-title-translation"></p></div>
+                  </article>
+                  <article class="ai-copy-block bullets-block">
+                    <header><div><span>02 / BULLETS</span><h5>五点描述</h5></div><div class="copy-tools"><em class="copy-count" id="ai-bullet-limit">每点 ≤ 500</em><button type="button" data-copy-ai="bullets">复制</button></div></header>
+                    <ol id="ai-bullets-copy"></ol>
+                  </article>
+                  <article class="ai-copy-block description-block">
+                    <header><div><span>03 / DESCRIPTION</span><h5>产品描述</h5></div><div class="copy-tools"><em class="copy-count" id="ai-description-count">0 / 2000</em><button type="button" data-copy-ai="description">复制</button></div></header>
+                    <div class="ai-copy-content ai-formatted-description" id="ai-description-copy"></div>
+                    <div class="ai-translation"><span>中文翻译 · 保持相同排版</span><div class="ai-formatted-description" id="ai-description-translation"></div></div>
+                  </article>
+                  <article class="ai-copy-block search-term-block">
+                    <header><div><span>04 / SEARCH TERMS</span><h5>后台搜索词</h5></div><div class="copy-tools"><em class="copy-count" id="ai-search-count">0 / 500 字符</em><button type="button" data-copy-ai="searchTerms">复制</button></div></header>
+                    <p class="ai-copy-content" id="ai-search-terms-copy"></p>
+                    <div class="ai-translation"><span>中文翻译 · 按短语对应</span><p id="ai-search-translation"></p></div>
+                  </article>
+                  <div class="ai-compliance-audit" id="ai-compliance-audit">
+                    <div><span>AMAZON / COMPLIANCE</span><strong id="ai-compliance-state">待校验</strong></div>
+                    <div id="ai-compliance-list"></div>
+                  </div>
+                  <div class="ai-keyword-audit">
+                    <div><span>FRONTEND KEYWORD AUDIT</span><strong id="ai-keyword-score">0 / 0</strong></div>
+                    <div id="ai-keyword-audit-list"></div>
+                    <div class="ai-export-actions">
+                      <button id="copy-ai-listing" type="button">复制完整 Listing</button>
+                      <button id="export-ai-listing" type="button">按模板导出 Excel</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel" id="competitor-map">
+              <div class="panel-head">
+                <div>
+                  <span class="section-kicker">COMPETITOR MAP</span>
+                  <h3>竞品地图</h3>
+                  <p>输入样本与自动发现的 3–5 个高相关竞品分开展示，并联查竞品关键词。</p>
+                </div>
+                <div class="scope-switch" id="competitor-switch">
+                  <button class="active" data-scope="seed">同款样本 <b>4</b></button>
+                  <button data-scope="traffic">自动竞品 <b>0</b></button>
+                </div>
+              </div>
+              <div class="competitor-grid" id="competitor-grid"></div>
+              <div class="competitor-note" id="competitor-note"></div>
+            </section>
+
+            <section class="panel trend-panel" id="trend-view">
+              <div class="panel-head">
+                <div>
+                  <span class="section-kicker">DEMAND TRACE</span>
+                  <h3>需求趋势</h3>
+                  <p>切换已验证的关键词，查看周搜索量变化与数据覆盖周期。</p>
+                </div>
+                <div class="select-wrap compact">
+                  <select id="trend-select">
+                    <option value="pannelli fonoassorbenti">pannelli fonoassorbenti</option>
+                    <option value="mensole per pannelli fonoassorbenti">mensole per pannelli fonoassorbenti</option>
+                  </select>
+                </div>
+              </div>
+              <div class="chart-summary" id="chart-summary"></div>
+              <div class="chart-shell">
+                <svg id="trend-chart" viewBox="0 0 900 300" role="img" aria-label="关键词周搜索量趋势图"></svg>
+              </div>
+              <div class="google-trends-note">
+                <span>GOOGLE TRENDS / ALPHA</span>
+                <p><strong>官方 API 接口位已预留。</strong>目前仍需申请 Alpha 权限；未获权限前，AI 分析使用 SIF 周搜索趋势，不调用非官方爬虫。</p>
+                <a href="https://developers.google.com/search/apis/trends" target="_blank" rel="noreferrer">申请官方访问 ↗</a>
+              </div>
+            </section>
+
+            <section class="panel source-panel" id="source-view">
+              <div class="panel-head">
+                <div>
+                  <span class="section-kicker">SOURCE & METHOD</span>
+                  <h3>数据溯源</h3>
+                  <p>保留数据日期、查询口径与 SIF 验证入口。</p>
+                </div>
+                <span class="verified-badge"><i></i>SIF VERIFIED</span>
+              </div>
+              <div class="method-grid">
+                <div><span>01</span><h4>输入 ASIN 反查</h4><p>按所选时间口径提取真实自然、广告流量词与搜索量。</p></div>
+                <div><span>02</span><h4>商品语义校验</h4><p>读取 ASIN 商品档案，用标题、属性与品牌识别关键词相关性。</p></div>
+                <div><span>03</span><h4>Listing 词位分配</h4><p>高相关词进标题，属性场景词进五点，剩余相关词进入后台 Search Terms。</p></div>
+              </div>
+              <div class="source-links" id="source-links"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <div class="history-backdrop" id="history-modal" hidden>
+      <aside class="history-drawer" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <button class="history-close" id="history-close" type="button" aria-label="关闭查询历史">×</button>
+        <div class="section-kicker">LOCAL ARCHIVE / 20</div>
+        <div class="history-heading">
+          <div><h2 id="history-title">查询历史</h2><p>结果快照保存在当前浏览器；点击整条记录即可直接回看，不会重新调用 SIF。</p></div>
+          <button id="history-clear" type="button">清空记录</button>
+        </div>
+        <div class="history-list" id="history-list"></div>
+      </aside>
+    </div>
+
+    <div class="config-backdrop" id="config-modal" hidden>
+      <section class="config-dialog" role="dialog" aria-modal="true" aria-labelledby="config-title">
+        <button class="config-close" id="config-close" type="button" aria-label="关闭配置">×</button>
+        <div class="section-kicker">CONNECTION / LOCAL</div>
+        <div class="config-heading">
+          <div>
+            <h2 id="config-title">SIF MCP 配置</h2>
+            <p>手动 Key 将优先于 Codex 配置，用于新的 ASIN 实时查询。</p>
+          </div>
+          <span class="config-state" id="config-state"><i></i>正在读取</span>
+        </div>
+
+        <form id="config-form" autocomplete="off">
+          <div class="field full">
+            <label for="mcp-url">服务地址 <span>仅允许 SIF 官方地址</span></label>
+            <input id="mcp-url" name="url" value="https://mcp.sif.com/mcp" inputmode="url" spellcheck="false" />
+          </div>
+          <div class="field full">
+            <label for="mcp-key">SIF MCP Key <span>不会回显或写入前端存储</span></label>
+            <div class="secret-field">
+              <input id="mcp-key" name="apiKey" type="password" autocomplete="new-password" placeholder="输入 Key 或 Bearer Key" spellcheck="false" />
+              <button id="key-visibility" type="button" aria-label="显示 Key">显示</button>
+            </div>
+          </div>
+
+          <div class="config-security">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
+            <div><strong>本机加密保存</strong><p>Key 只发送到 127.0.0.1，由 Windows 当前用户加密；浏览器 API 永远只返回“已保存”。</p></div>
+          </div>
+
+          <div class="config-actions">
+            <button class="config-reset" id="config-reset" type="button" hidden>恢复 Codex 配置</button>
+            <button class="config-save" id="config-save" type="submit"><span>测试并保存</span><b>→</b></button>
+          </div>
+          <p class="config-message" id="config-message" role="status">保存前会先连接 SIF 验证 Key。</p>
+        </form>
+      </section>
+    </div>
+
+    <div class="config-backdrop" id="ai-config-modal" hidden>
+      <section class="config-dialog ai-config-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-config-title">
+        <button class="config-close" id="ai-config-close" type="button" aria-label="关闭 AI 配置">×</button>
+        <div class="section-kicker">MODEL / BYOK</div>
+        <div class="config-heading">
+          <div>
+            <h2 id="ai-config-title">AI 模型配置</h2>
+            <p>支持 DeepSeek、智谱、Kimi 与任何 OpenAI Chat Completions 兼容服务。</p>
+          </div>
+          <span class="config-state offline" id="ai-config-state"><i></i>尚未配置</span>
+        </div>
+
+        <form id="ai-config-form" autocomplete="off">
+          <div class="field-grid ai-provider-grid">
+            <div class="field">
+              <label for="ai-provider">供应商</label>
+              <div class="select-wrap">
+                <select id="ai-provider" name="provider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="zhipu">智谱 GLM</option>
+                  <option value="kimi">Kimi</option>
+                  <option value="custom">自定义兼容模型</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="ai-model">模型名称 <span>可手动修改</span></label>
+              <input id="ai-model" name="model" value="deepseek-v4-flash" spellcheck="false" />
+            </div>
+          </div>
+          <div class="field full">
+            <label for="ai-base-url">API Base URL <span>自动补全 /chat/completions</span></label>
+            <input id="ai-base-url" name="baseUrl" value="https://api.deepseek.com" inputmode="url" spellcheck="false" />
+          </div>
+          <div class="field full">
+            <label for="ai-api-key">API Key <span>留空可继续使用已保存 Key</span></label>
+            <div class="secret-field">
+              <input id="ai-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="输入当前供应商的 API Key" spellcheck="false" />
+              <button id="ai-key-visibility" type="button" aria-label="显示 AI Key">显示</button>
+            </div>
+          </div>
+
+          <div class="config-security ai-security">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
+            <div><strong>Key 本机加密，生成时直连所选供应商</strong><p>Key 由 Windows 当前用户加密保存，不回显到浏览器。自定义地址会收到你的商品参数、关键词和竞品标题，请只配置可信服务。</p></div>
+          </div>
+
+          <div class="config-actions">
+            <button class="config-reset" id="ai-config-reset" type="button" hidden>清除 AI 配置</button>
+            <button class="config-save" id="ai-config-save" type="submit"><span>保存并测试连接</span><b>→</b></button>
+          </div>
+          <p class="config-message" id="ai-config-message" role="status">Key 会先在本机加密保存，再进行一次最小模型调用验证。</p>
+        </form>
+      </section>
+    </div>
+
+    <footer>
+      <div class="shell">
+        <span>SIF KEYWORD RADAR / 2026</span>
+        <p>用真实流量证据，过滤看起来很大的错词。</p>
+      </div>
+    </footer>
+
+    <script src="/vendor/jszip.min.js"></script>
+    <script type="module" src="/app.js?v=28"></script>
+  </body>
+</html>
