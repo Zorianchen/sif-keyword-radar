@@ -138,6 +138,14 @@ async function run() {
   assert.equal(logout.status, 200);
   assert.match(logout.headers.get("set-cookie") || "", /Max-Age=0/i);
 
+  const logoutNavigation = await fetch(`${origin}/logout`, {
+    redirect: "manual",
+    headers: { Cookie: cookie }
+  });
+  assert.equal(logoutNavigation.status, 303);
+  assert.equal(logoutNavigation.headers.get("location"), "/login");
+  assert.match(logoutNavigation.headers.get("set-cookie") || "", /Max-Age=0/i);
+
   console.log("Authentication smoke test passed.");
 }
 

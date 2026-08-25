@@ -82,8 +82,8 @@ async function body(req) {
   }
 }
 
-function redirect(res, location) {
-  res.writeHead(302, responseHeaders({ Location: location, "Cache-Control": "no-store" }));
+function redirect(res, location, status = 302, headers = {}) {
+  res.writeHead(status, responseHeaders({ Location: location, "Cache-Control": "no-store", ...headers }));
   res.end();
 }
 
@@ -1928,6 +1928,12 @@ async function serve(req, res) {
 
     if (req.method === "POST" && url.pathname === "/api/auth/logout") {
       return json(res, 200, { authenticated: false }, {
+        "Set-Cookie": sessionCookie(req, "", 0)
+      });
+    }
+
+    if (req.method === "GET" && url.pathname === "/logout") {
+      return redirect(res, "/login", 303, {
         "Set-Cookie": sessionCookie(req, "", 0)
       });
     }

@@ -345,17 +345,10 @@ function showToast(message, tone = "normal") {
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
 }
 
-async function logout() {
+function logout() {
   const button = $("#logout-button");
   button.disabled = true;
-  try {
-    const response = await fetch("/api/auth/logout", { method: "POST" });
-    if (!response.ok) throw new Error("退出失败，请重试。");
-    window.location.replace("/login");
-  } catch (error) {
-    button.disabled = false;
-    showToast(error.message, "error");
-  }
+  window.location.assign("/logout");
 }
 
 function setConfigMessage(message, tone = "normal") {
