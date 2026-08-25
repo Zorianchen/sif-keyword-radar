@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize } from "node:path";
@@ -14,6 +14,13 @@ const aiConfigPath = join(root, "data", "ai-model.local.enc");
 const portableSecretPath = join(root, "data", "config-secret.local");
 const port = Number(process.env.PORT || 4188);
 const portableConfigPrefix = "aesgcm:v1:";
+const authCookieName = "sif_radar_session";
+const authUsername = String(process.env.APP_USERNAME || "yusen").trim() || "yusen";
+const authPassword = String(process.env.APP_PASSWORD || "");
+const authSessionSeconds = 12 * 60 * 60;
+const loginAttemptWindowMs = 15 * 60 * 1000;
+const maxLoginAttempts = 8;
+const loginAttempts = new Map();
 let manualConfigCache;
 let manualConfigLoaded = false;
 let aiConfigCache;
@@ -36,15 +43,47 @@ const mime = {
   ".ico": "image/x-icon"
 };
 
-function json(res, status, value) {
-  res.writeHead(status, { "Content-Type": mime[".json"], "Cache-Control": "no-store" });
+function responseHeaders(extra = {}) {
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    ...extra
+  };
+}
+
+function json(res, status, value, headers = {}) {
+  res.writeHead(status, responseHeaders({ "Content-Type": mime[".json"], "Cache-Control": "no-store", ...headers }));
   res.end(JSON.stringify(value));
 }
 
 async function body(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 2 * 1024 * 1024) {
+      const error = new Error("请求内容过大。");
+      error.status = 413;
+      error.code = "PAYLOAD_TOO_LARGE";
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  } catch {
+    const error = new Error("请求内容不是有效的 JSON。");
+    error.status = 400;
+    error.code = "INVALID_JSON";
+    throw error;
+  }
+}
+
+function redirect(res, location) {
+  res.writeHead(302, responseHeaders({ Location: location, "Cache-Control": "no-store" }));
+  res.end();
 }
 
 function normalizedAsins(value = []) {
@@ -120,6 +159,117 @@ async function portableConfigSecret() {
 async function portableConfigKey() {
   const secret = await portableConfigSecret();
   return createHash("sha256").update(secret, "utf8").digest();
+}
+
+function requestIp(req) {
+  const realIp = String(req.headers["x-real-ip"] || "").trim();
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",").map((item) => item.trim()).filter(Boolean);
+  return realIp || forwarded.at(-1) || req.socket.remoteAddress || "unknown";
+}
+
+function cookieValue(req, name) {
+  const cookies = String(req.headers.cookie || "").split(/;\s*/);
+  const match = cookies.find((item) => item.startsWith(`${name}=`));
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match.slice(name.length + 1));
+  } catch {
+    return "";
+  }
+}
+
+function secureRequest(req) {
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  return forwardedProto === "https" || Boolean(req.socket.encrypted);
+}
+
+async function sessionSignature(payload) {
+  return createHmac("sha256", await portableConfigKey())
+    .update(`sif-radar-session:${payload}`, "utf8")
+    .digest("base64url");
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left), "utf8");
+  const rightBuffer = Buffer.from(String(right), "utf8");
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+async function createSessionToken(username) {
+  const payload = Buffer.from(JSON.stringify({
+    username,
+    expiresAt: Date.now() + authSessionSeconds * 1000,
+    nonce: randomBytes(12).toString("base64url")
+  }), "utf8").toString("base64url");
+  return `${payload}.${await sessionSignature(payload)}`;
+}
+
+async function authenticatedUsername(req) {
+  const token = cookieValue(req, authCookieName);
+  const separator = token.lastIndexOf(".");
+  if (separator <= 0) return null;
+  const payload = token.slice(0, separator);
+  const signature = token.slice(separator + 1);
+  const expectedSignature = await sessionSignature(payload);
+  if (!safeEqual(signature, expectedSignature)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (session.username !== authUsername || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) return null;
+    return session.username;
+  } catch {
+    return null;
+  }
+}
+
+function sessionCookie(req, token, maxAge = authSessionSeconds) {
+  const attributes = [
+    `${authCookieName}=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAge}`
+  ];
+  if (secureRequest(req)) attributes.push("Secure");
+  return attributes.join("; ");
+}
+
+async function validCredentials(username, password) {
+  const key = await portableConfigKey();
+  const submitted = createHmac("sha256", key).update(`${username}\0${password}`, "utf8").digest();
+  const expected = createHmac("sha256", key).update(`${authUsername}\0${authPassword}`, "utf8").digest();
+  return timingSafeEqual(submitted, expected);
+}
+
+function loginLimit(ip) {
+  const now = Date.now();
+  const current = loginAttempts.get(ip);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.delete(ip);
+    return null;
+  }
+  return current.count >= maxLoginAttempts ? Math.ceil((current.resetAt - now) / 1000) : null;
+}
+
+function recordLoginFailure(ip) {
+  const now = Date.now();
+  const current = loginAttempts.get(ip);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + loginAttemptWindowMs });
+    return;
+  }
+  current.count += 1;
+}
+
+async function sendStatic(res, requested) {
+  const clean = normalize(requested).replace(/^(\.\.[/\\])+/, "");
+  const file = join(publicRoot, clean);
+  if (!file.startsWith(publicRoot)) return json(res, 403, { message: "Forbidden" });
+  const content = await readFile(file);
+  res.writeHead(200, responseHeaders({
+    "Content-Type": mime[extname(file)] || "application/octet-stream",
+    "Cache-Control": "no-store"
+  }));
+  res.end(content);
 }
 
 async function portableProtect(value) {
@@ -1736,20 +1886,74 @@ async function generateAiListing(input) {
 async function serve(req, res) {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const authUser = await authenticatedUsername(req);
+
+    if (req.method === "GET" && url.pathname === "/api/auth/status") {
+      return json(res, 200, {
+        configured: Boolean(authPassword),
+        authenticated: Boolean(authUser),
+        username: authUser
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/login") {
+      if (!authPassword) {
+        return json(res, 503, {
+          code: "AUTH_NOT_CONFIGURED",
+          message: "服务器尚未配置 APP_PASSWORD，请先在宝塔环境变量中设置登录密码。"
+        });
+      }
+      const ip = requestIp(req);
+      const retryAfter = loginLimit(ip);
+      if (retryAfter) {
+        return json(res, 429, {
+          code: "LOGIN_RATE_LIMITED",
+          message: `登录尝试过多，请在 ${Math.ceil(retryAfter / 60)} 分钟后重试。`
+        }, { "Retry-After": String(retryAfter) });
+      }
+      const input = await body(req);
+      const username = String(input.username || "").trim();
+      const password = String(input.password || "");
+      if (username.length > 80 || password.length > 256 || !(await validCredentials(username, password))) {
+        recordLoginFailure(ip);
+        return json(res, 401, { code: "INVALID_CREDENTIALS", message: "账号或密码不正确。" });
+      }
+      loginAttempts.delete(ip);
+      const token = await createSessionToken(authUsername);
+      return json(res, 200, { authenticated: true, username: authUsername }, {
+        "Set-Cookie": sessionCookie(req, token)
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+      return json(res, 200, { authenticated: false }, {
+        "Set-Cookie": sessionCookie(req, "", 0)
+      });
+    }
 
     if (req.method === "GET" && url.pathname === "/api/health") {
-      const config = await connectionConfig();
-      const modelConfig = await aiConfig();
       return json(res, 200, {
         ok: true,
-        mcpConfigured: Boolean(config),
-        connectionMode: config?.mode || "snapshot-only",
-        configSource: config?.source || null,
-        aiConfigured: Boolean(modelConfig),
-        aiProvider: modelConfig?.provider || null,
-        aiModel: modelConfig?.model || null,
-        snapshotUpdatedThrough: "2026-08-19"
+        authenticationConfigured: Boolean(authPassword),
+        authenticated: Boolean(authUser)
       });
+    }
+
+    if (req.method === "GET" && (url.pathname === "/login" || url.pathname === "/login.html")) {
+      if (authUser) return redirect(res, "/");
+      return await sendStatic(res, "login.html");
+    }
+
+    if (req.method === "GET" && (url.pathname === "/login.css" || url.pathname === "/login.js")) {
+      return await sendStatic(res, url.pathname.slice(1));
+    }
+
+    if (!authUser) {
+      if (url.pathname.startsWith("/api/")) {
+        return json(res, 401, { code: "AUTH_REQUIRED", message: "请先登录后再访问。" });
+      }
+      if (req.method === "GET") return redirect(res, "/login");
+      return json(res, 401, { code: "AUTH_REQUIRED", message: "请先登录后再访问。" });
     }
 
     if (req.method === "GET" && url.pathname === "/api/config") {
@@ -1848,20 +2052,15 @@ async function serve(req, res) {
     if (req.method !== "GET") return json(res, 405, { message: "Method not allowed" });
 
     const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
-    const clean = normalize(requested).replace(/^(\.\.[/\\])+/, "");
-    const file = join(publicRoot, clean);
-    if (!file.startsWith(publicRoot)) return json(res, 403, { message: "Forbidden" });
-
-    const content = await readFile(file);
-    res.writeHead(200, {
-      "Content-Type": mime[extname(file)] || "application/octet-stream",
-      "Cache-Control": "no-store"
-    });
-    res.end(content);
+    return await sendStatic(res, requested);
   } catch (error) {
     if (error.code === "ENOENT") return json(res, 404, { message: "Not found" });
     json(res, error.status || 500, { code: error.code || "SERVER_ERROR", message: error.message });
   }
+}
+
+if (!authPassword) {
+  console.warn("APP_PASSWORD is not configured; the application will remain locked until a server login password is set.");
 }
 
 createServer(serve).listen(port, "127.0.0.1", () => {

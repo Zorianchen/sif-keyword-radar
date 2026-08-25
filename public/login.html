@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="SIF Keyword Radar 安全登录" />
+    <title>登录 · SIF Keyword Radar</title>
+    <link rel="stylesheet" href="/login.css?v=1" />
+  </head>
+  <body>
+    <div class="login-grid" aria-hidden="true"></div>
+    <div class="login-grain" aria-hidden="true"></div>
+
+    <main class="login-shell">
+      <section class="login-story" aria-labelledby="login-heading">
+        <a class="login-brand" href="/login" aria-label="SIF Keyword Radar 登录页">
+          <span class="login-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span><strong>KEYWORD / RADAR</strong><small>PRIVATE WORKSPACE</small></span>
+        </a>
+
+        <div class="story-copy">
+          <p class="story-eyebrow"><span>SECURE / ACCESS</span><i></i>Amazon 关键词情报工作台</p>
+          <h1 id="login-heading">先验证身份，<br /><em>再进入流量雷达。</em></h1>
+          <p class="story-summary">查询历史、SIF MCP Key 与 AI 模型配置都保存在你的服务器中。登录后才可访问主页面和业务接口。</p>
+        </div>
+
+        <div class="story-security">
+          <span>01</span>
+          <p><strong>服务器端会话保护。</strong> 登录状态使用签名 Cookie，不在浏览器保存账号密码。</p>
+        </div>
+      </section>
+
+      <section class="login-card" aria-label="账号登录">
+        <div class="card-index">AUTH / 01</div>
+        <div class="card-heading">
+          <div><span>WELCOME BACK</span><h2>登录工作台</h2></div>
+          <div class="card-lock" aria-hidden="true"><i></i></div>
+        </div>
+
+        <form id="login-form" autocomplete="on" novalidate>
+          <label for="username"><span>账号</span><small>USERNAME</small></label>
+          <input id="username" name="username" type="text" value="yusen" autocomplete="username" maxlength="80" required />
+
+          <label for="password"><span>密码</span><small>PASSWORD</small></label>
+          <div class="password-field">
+            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required />
+            <button id="password-toggle" type="button" aria-label="显示密码">显示</button>
+          </div>
+
+          <p class="login-message" id="login-message" role="status" aria-live="polite">请输入服务器设置的登录账号和密码。</p>
+
+          <button class="login-submit" id="login-submit" type="submit">
+            <span>进入工作台</span><b aria-hidden="true">→</b>
+          </button>
+        </form>
+
+        <div class="card-foot">
+          <i></i><span>PRIVATE SERVER · HTTPONLY SESSION</span>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/login.js?v=1"></script>
+  </body>
+</html>

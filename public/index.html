@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="基于 SIF MCP 的 Amazon ASIN 关键词与竞品联查工作台" />
     <title>SIF Keyword Radar · 流量词雷达</title>
-    <link rel="stylesheet" href="/styles.css?v=28" />
+    <link rel="stylesheet" href="/styles.css?v=29" />
   </head>
   <body>
     <div class="grain" aria-hidden="true"></div>
@@ -32,6 +32,10 @@
         <button class="config-button ai-config-open" id="ai-config-open" type="button" aria-label="AI 模型配置" aria-haspopup="dialog" aria-controls="ai-config-modal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z"/><path d="M18.5 16l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z"/></svg>
           <span>AI 模型</span><b id="ai-nav-state">未配置</b>
+        </button>
+        <button class="config-button logout-button" id="logout-button" type="button" aria-label="退出登录">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M9 12h9"/></svg>
+          <span>退出登录</span>
         </button>
         <button class="icon-button" id="theme-toggle" type="button" aria-label="切换主题" title="切换主题">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.91-.1-1.35A6.5 6.5 0 0 1 12.35 3H12Z"/></svg>
@@ -510,6 +514,6 @@
     </footer>
 
     <script src="/vendor/jszip.min.js"></script>
-    <script type="module" src="/app.js?v=28"></script>
+    <script type="module" src="/app.js?v=29"></script>
   </body>
 </html>

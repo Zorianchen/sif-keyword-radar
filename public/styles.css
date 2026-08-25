@@ -103,6 +103,8 @@ a { color: inherit; }
 .ai-config-open:hover b { color: var(--acid); }
 .history-open { position: relative; }
 .history-open b { min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; color: var(--green); background: var(--acid); font: 750 8px/1 var(--mono); }
+.logout-button { color: var(--ink-soft); }
+.logout-button:hover { color: var(--paper); background: var(--orange); border-color: var(--orange); }
 .icon-button { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line); background: transparent; color: var(--ink); }
 .icon-button:hover { background: var(--ink); color: var(--paper); }
 .icon-button svg { width: 17px; fill: currentColor; }

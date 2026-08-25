@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check public/app.js"
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/login.js && node --check scripts/auth-smoke.mjs",
+    "test:auth": "node scripts/auth-smoke.mjs"
   }
 }
