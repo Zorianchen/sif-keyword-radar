@@ -29,7 +29,7 @@ url = "https://mcp.sif.com/mcp"
 
 认证头仍保留在 Codex 配置中，服务端只在请求 SIF 时读取，不会通过 API 下发给浏览器，也不会复制到项目文件。默认 ASIN 组合直接使用最近一次已验证快照；输入其他 ASIN 时调用 SIF MCP 实时反查。
 
-也可以点击页面右上角的「MCP 配置」，手动输入 SIF MCP Key。网站会先验证连接，再通过 Windows DPAPI 以当前用户身份加密保存到 `data/sif-mcp.local.enc`；API 不会回显 Key，该文件也已加入 `.gitignore`。
+也可以点击页面右上角的「MCP 配置」，手动输入 SIF MCP Key。网站会先验证连接，再加密保存到 `data/sif-mcp.local.enc`；Windows 默认使用当前用户的 DPAPI，Linux 使用 `SIF_CONFIG_SECRET` 派生的 AES-256-GCM 密钥。API 不会回显 Key，该文件也已加入 `.gitignore`。
 
 如需改用自建 HTTP Bridge，可用环境变量覆盖：
 
@@ -72,8 +72,28 @@ Bridge 应返回与 `data/live-snapshot.json` 同结构的数据。密钥只放�
 - Kimi：`https://api.moonshot.cn/v1` / `kimi-k3`
 - 自定义：任意可信的公网 HTTPS Base URL 和模型名称
 
-配置时会进行一次最小模型调用，验证成功后使用 Windows DPAPI 加密保存到 `data/ai-model.local.enc`。Key 不会由配置查询接口回显。生成 Listing 时只发送当前查询的商品参数、已验证关键词、趋势数据与竞品标题。
+配置时会进行一次最小模型调用，验证成功后使用与 SIF 配置相同的系统加密方式保存到 `data/ai-model.local.enc`。Key 不会由配置查询接口回显。生成 Listing 时只发送当前查询的商品参数、已验证关键词、趋势数据与竞品标题。
 
 AI 成稿包含目标站点语言标题、五点、产品描述和后台 Search Terms。服务端会复核指定的高相关流量词；缺失时先要求模型修正，仍缺失的词会补入后台 Search Terms。前端会高亮所有命中的流量词并显示搜索量和嵌入位置。
 
 Google Trends 官方 API 目前处于申请制 Alpha。网站暂以 SIF 周搜索趋势作为 AI 趋势依据，并在趋势模块保留官方申请入口，不接入不稳定的非官方爬虫。
+
+## 宝塔面板部署
+
+建议使用宝塔「Node 项目」管理器和 Nginx 反向代理：
+
+1. 服务器安装 Node.js 20 或更高版本，并在 `/www/wwwroot` 克隆本仓库。
+2. 项目目录设为 `/www/wwwroot/sif-keyword-radar`，启动命令设为 `npm start`，项目端口设为 `4173`。
+3. 在宝塔 Node 项目的环境变量中设置：
+
+   ```text
+   NODE_ENV=production
+   PORT=4173
+   SIF_CONFIG_SECRET=至少32字符且部署后保持不变的随机主密钥
+   ```
+
+4. 将域名反向代理到 `http://127.0.0.1:4173`。应用只监听本机回环地址，不需要在腾讯云安全组开放 `4173`。
+5. 给站点申请 SSL，并强制 HTTPS。该网站可以调用付费 AI/SIF 接口，必须在宝塔中为站点配置访问密码或其他身份验证，不能直接匿名公开。
+6. 确保运行 Node 项目的系统用户对 `data/` 目录有写权限。首次打开网站后，在右上角重新输入 SIF 和 AI Key；Windows 生成的 DPAPI 文件不能迁移到 Linux。
+
+如果更换 `SIF_CONFIG_SECRET`，服务器上已保存的两个 `.enc` 配置将无法解密，需要删除后重新配置。`.env.example` 只提供变量名称，不包含任何真实密钥。

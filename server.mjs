@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize } from "node:path";
@@ -11,6 +12,7 @@ const snapshotPath = join(root, "data", "live-snapshot.json");
 const manualConfigPath = join(root, "data", "sif-mcp.local.enc");
 const aiConfigPath = join(root, "data", "ai-model.local.enc");
 const port = Number(process.env.PORT || 4173);
+const portableConfigPrefix = "aesgcm:v1:";
 let manualConfigCache;
 let manualConfigLoaded = false;
 let aiConfigCache;
@@ -73,13 +75,46 @@ function powershell(input, script) {
 }
 
 async function protect(value) {
+  if (process.env.SIF_CONFIG_SECRET) return portableProtect(value);
+  if (process.platform !== "win32") {
+    throw new Error("Linux 服务器需设置至少 32 个字符的 SIF_CONFIG_SECRET 环境变量后才能保存 Key。");
+  }
   const script = "$plain=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Security; $bytes=[Text.Encoding]::UTF8.GetBytes($plain); $protected=[Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Out.Write([Convert]::ToBase64String($protected))";
   return powershell(value, script);
 }
 
 async function unprotect(value) {
+  if (String(value || "").startsWith(portableConfigPrefix)) return portableUnprotect(value);
+  if (process.platform !== "win32") {
+    throw new Error("该配置为 Windows DPAPI 格式，不能在 Linux 解密；请在服务器网页中重新输入 Key。");
+  }
   const script = "$blob=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Security; $bytes=[Convert]::FromBase64String($blob); $plain=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Out.Write([Text.Encoding]::UTF8.GetString($plain))";
   return powershell(value, script);
+}
+
+function portableConfigKey() {
+  const secret = String(process.env.SIF_CONFIG_SECRET || "");
+  if (secret.length < 32) throw new Error("SIF_CONFIG_SECRET 至少需要 32 个字符。");
+  return createHash("sha256").update(secret, "utf8").digest();
+}
+
+function portableProtect(value) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", portableConfigKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  const payload = Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64");
+  return `${portableConfigPrefix}${payload}`;
+}
+
+function portableUnprotect(value) {
+  const payload = Buffer.from(String(value).slice(portableConfigPrefix.length), "base64");
+  if (payload.length < 29) throw new Error("加密配置文件格式无效。");
+  const iv = payload.subarray(0, 12);
+  const tag = payload.subarray(12, 28);
+  const ciphertext = payload.subarray(28);
+  const decipher = createDecipheriv("aes-256-gcm", portableConfigKey(), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }
 
 async function manualConfig() {
