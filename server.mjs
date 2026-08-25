@@ -12,7 +12,8 @@ const snapshotPath = join(root, "data", "live-snapshot.json");
 const manualConfigPath = join(root, "data", "sif-mcp.local.enc");
 const aiConfigPath = join(root, "data", "ai-model.local.enc");
 const portableSecretPath = join(root, "data", "config-secret.local");
-const port = Number(process.env.PORT || 4188);
+const host = String(process.env.HOST || "0.0.0.0").trim() || "0.0.0.0";
+const port = Number(process.env.PORT || 8088);
 const portableConfigPrefix = "aesgcm:v1:";
 const authCookieName = "sif_radar_session";
 const authUsername = String(process.env.APP_USERNAME || "yusen").trim() || "yusen";
@@ -2063,6 +2064,6 @@ if (!authPassword) {
   console.warn("APP_PASSWORD is not configured; the application will remain locked until a server login password is set.");
 }
 
-createServer(serve).listen(port, "127.0.0.1", () => {
-  console.log(`SIF Keyword Radar running at http://127.0.0.1:${port}`);
+createServer(serve).listen(port, host, () => {
+  console.log(`SIF Keyword Radar running at http://${host}:${port}`);
 });

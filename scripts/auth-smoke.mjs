@@ -19,6 +19,7 @@ function startServer() {
     windowsHide: true,
     env: {
       ...process.env,
+      HOST: "127.0.0.1",
       PORT: String(port),
       APP_USERNAME: username,
       APP_PASSWORD: password,

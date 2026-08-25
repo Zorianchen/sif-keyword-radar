@@ -12,10 +12,11 @@
 ```powershell
 $env:APP_USERNAME = "yusen"
 $env:APP_PASSWORD = "replace-with-a-private-password"
+$env:HOST = "127.0.0.1"
 npm start
 ```
 
-然后打开 <http://127.0.0.1:4188>，未登录时会自动跳转到 `/login`。
+然后打开 <http://127.0.0.1:8088>，未登录时会自动跳转到 `/login`。
 
 项目无第三方运行依赖，只使用 Node.js 内置模块。
 
@@ -88,31 +89,14 @@ Google Trends 官方 API 目前处于申请制 Alpha。网站暂以 SIF 周搜�
 
 ## 宝塔面板部署
 
-建议使用宝塔「Node 项目」管理器和 Nginx 反向代理：
+可以直接使用宝塔「Node 项目」管理器部署，无需额外配置 Nginx 反向代理：
 
 1. 服务器安装 Node.js 20 或更高版本，并在 `/www/wwwroot` 克隆本仓库。
 2. 添加 Node 项目时，项目目录设为 `/www/wwwroot/sif-keyword-radar`。宝塔会读取 `package.json`，启动选项直接选择自动出现的 `start: node server.mjs`。
 3. Node 版本选择已安装的 v22，运行用户选择 `www`，包管理器选择 `npm`。项目没有第三方依赖，可以勾选“不安装 node_modules”。
-4. 项目内部端口填写 `4188`（避开你服务器上已经使用过的 4173、4174 和 4317）。在宝塔项目环境变量中设置 `APP_USERNAME` 和 `APP_PASSWORD`；不要把真实密码写入 `.env.example` 或代码。
+4. 项目端口填写 `8088`（避开服务器上已经使用的端口）。应用默认监听 `0.0.0.0:8088`；如宝塔提供环境变量设置，可显式填写 `HOST=0.0.0.0`、`PORT=8088`、`APP_USERNAME` 和 `APP_PASSWORD`。不要把真实密码写入 `.env.example` 或代码。
 5. 确保 `www` 用户对 `data/` 目录有写权限，然后启动项目。首次登录后，在右上角「MCP 配置」和「AI 模型」中自行输入 Key，服务器会自动创建本机加密密钥。
-6. 服务器的 80 端口已有 SellerSprite 项目，因此本项目使用独立公网端口 `8088`。让 Nginx 监听 `119.29.247.91:8088`，反向代理到 `http://127.0.0.1:4188`。访问地址为 `http://119.29.247.91:8088/`，腾讯云安全组放行 TCP 8088，不要放行内部端口 4188。
-7. Nginx 代理必须传递 `Host`、`X-Real-IP`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。生产环境强烈建议绑定域名并启用 SSL/HTTPS；HTTP 会明文传输登录密码和 SIF/AI Key，不适合长期使用。
-
-公网 IP 的 Nginx 核心配置示例：
-
-```nginx
-server {
-    listen 8088;
-    server_name 119.29.247.91;
-
-    location / {
-        proxy_pass http://127.0.0.1:4188;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+6. 在腾讯云安全组和宝塔防火墙中放行 TCP `8088`，然后直接访问 `http://119.29.247.91:8088/`。
+7. 生产环境仍建议绑定域名并启用 SSL/HTTPS；直接使用 HTTP 会明文传输登录密码和 SIF/AI Key，不适合长期使用。
 
 `data/config-secret.local` 与两个 `.enc` 文件是一套，迁移或重装时要一起备份；丢失本机密钥后，已保存的 SIF/AI Key 无法解密，只能重新输入。高级用户仍可通过至少 32 字符的 `SIF_CONFIG_SECRET` 固定主密钥，但普通宝塔部署不需要设置。`.env.example` 只提供变量名称，不包含任何真实密钥。
