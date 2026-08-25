@@ -1,17 +1,20 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, unlink, writeFile } from "node:fs/promises";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const publicRoot = join(root, "public");
-const snapshotPath = join(root, "data", "live-snapshot.json");
-const manualConfigPath = join(root, "data", "sif-mcp.local.enc");
-const aiConfigPath = join(root, "data", "ai-model.local.enc");
-const portableSecretPath = join(root, "data", "config-secret.local");
+const dataRoot = process.env.APP_DATA_DIR ? resolve(process.env.APP_DATA_DIR) : join(root, "data");
+const snapshotPath = join(dataRoot, "live-snapshot.json");
+const legacyManualConfigPath = join(dataRoot, "sif-mcp.local.enc");
+const legacyAiConfigPath = join(dataRoot, "ai-model.local.enc");
+const portableSecretPath = join(dataRoot, "config-secret.local");
+const usersPath = join(dataRoot, "users.local.json");
+const userDataRoot = join(dataRoot, "users");
 const host = String(process.env.HOST || "0.0.0.0").trim() || "0.0.0.0";
 const port = Number(process.env.PORT || 8088);
 const portableConfigPrefix = "aesgcm:v1:";
@@ -22,10 +25,10 @@ const authSessionSeconds = 12 * 60 * 60;
 const loginAttemptWindowMs = 15 * 60 * 1000;
 const maxLoginAttempts = 8;
 const loginAttempts = new Map();
-let manualConfigCache;
-let manualConfigLoaded = false;
-let aiConfigCache;
-let aiConfigLoaded = false;
+const registrationWindowMs = 60 * 60 * 1000;
+const maxRegistrationsPerIp = 10;
+const registrationAttempts = new Map();
+let usersWriteQueue = Promise.resolve();
 
 const aiPresets = {
   deepseek: { label: "DeepSeek", baseUrl: "https://api.deepseek.com", model: "deepseek-v4-flash" },
@@ -146,6 +149,7 @@ async function portableConfigSecret() {
   }
 
   const generatedSecret = randomBytes(32).toString("base64url");
+  await mkdir(dataRoot, { recursive: true });
   try {
     await writeFile(portableSecretPath, `${generatedSecret}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     return generatedSecret;
@@ -196,6 +200,100 @@ function safeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function normalizedUsername(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function validUsername(value) {
+  return /^[a-z0-9][a-z0-9._-]{2,31}$/.test(normalizedUsername(value));
+}
+
+function userStorageId(username) {
+  return createHash("sha256").update(`sif-radar-user:${normalizedUsername(username)}`, "utf8").digest("hex");
+}
+
+function userConfigPath(username, filename) {
+  return join(userDataRoot, userStorageId(username), filename);
+}
+
+async function readUsersStore() {
+  try {
+    const parsed = JSON.parse(await readFile(usersPath, "utf8"));
+    const users = Array.isArray(parsed?.users) ? parsed.users.filter((user) => (
+      validUsername(user?.username)
+      && typeof user?.salt === "string"
+      && typeof user?.passwordHash === "string"
+    )) : [];
+    return { version: 1, users };
+  } catch (error) {
+    if (error.code === "ENOENT") return { version: 1, users: [] };
+    throw error;
+  }
+}
+
+async function writeUsersStore(store) {
+  await mkdir(dataRoot, { recursive: true });
+  const temporaryPath = `${usersPath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(store, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await rename(temporaryPath, usersPath);
+}
+
+function derivePasswordHash(password, salt) {
+  return new Promise((resolveHash, rejectHash) => {
+    scrypt(String(password), salt, 64, { N: 16384, r: 8, p: 1 }, (error, key) => {
+      if (error) rejectHash(error);
+      else resolveHash(key);
+    });
+  });
+}
+
+async function registeredUser(username) {
+  const normalized = normalizedUsername(username);
+  const store = await readUsersStore();
+  return store.users.find((user) => user.username === normalized) || null;
+}
+
+async function userExists(username) {
+  const normalized = normalizedUsername(username);
+  if (!normalized) return false;
+  if (authPassword && normalized === normalizedUsername(authUsername)) return true;
+  return Boolean(await registeredUser(normalized));
+}
+
+async function registerUser(username, password) {
+  const normalized = normalizedUsername(username);
+  if (!validUsername(normalized)) {
+    const error = new Error("账号需为 3–32 位，只能使用字母、数字、点、下划线或短横线，并以字母或数字开头。");
+    error.status = 400;
+    error.code = "INVALID_USERNAME";
+    throw error;
+  }
+  if (String(password).length < 8 || String(password).length > 128) {
+    const error = new Error("密码长度需为 8–128 个字符。");
+    error.status = 400;
+    error.code = "INVALID_PASSWORD";
+    throw error;
+  }
+
+  const operation = usersWriteQueue.then(async () => {
+    const store = await readUsersStore();
+    const reservedByEnvironment = authPassword && normalized === normalizedUsername(authUsername);
+    if (reservedByEnvironment || store.users.some((user) => user.username === normalized)) {
+      const error = new Error("该账号已存在，请直接登录。");
+      error.status = 409;
+      error.code = "USERNAME_EXISTS";
+      throw error;
+    }
+    const salt = randomBytes(16).toString("base64url");
+    const passwordHash = (await derivePasswordHash(password, salt)).toString("base64url");
+    store.users.push({ username: normalized, salt, passwordHash, createdAt: new Date().toISOString() });
+    await writeUsersStore(store);
+    return normalized;
+  });
+  usersWriteQueue = operation.catch(() => {});
+  return operation;
+}
+
 async function createSessionToken(username) {
   const payload = Buffer.from(JSON.stringify({
     username,
@@ -215,8 +313,9 @@ async function authenticatedUsername(req) {
   if (!safeEqual(signature, expectedSignature)) return null;
   try {
     const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (session.username !== authUsername || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) return null;
-    return session.username;
+    const username = normalizedUsername(session.username);
+    if (!validUsername(username) || !Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) return null;
+    return await userExists(username) ? username : null;
   } catch {
     return null;
   }
@@ -235,9 +334,17 @@ function sessionCookie(req, token, maxAge = authSessionSeconds) {
 }
 
 async function validCredentials(username, password) {
+  const normalized = normalizedUsername(username);
+  const user = await registeredUser(normalized);
+  if (user) {
+    const submitted = await derivePasswordHash(password, user.salt);
+    const expected = Buffer.from(user.passwordHash, "base64url");
+    return submitted.length === expected.length && timingSafeEqual(submitted, expected);
+  }
+  if (!authPassword || normalized !== normalizedUsername(authUsername)) return false;
   const key = await portableConfigKey();
-  const submitted = createHmac("sha256", key).update(`${username}\0${password}`, "utf8").digest();
-  const expected = createHmac("sha256", key).update(`${authUsername}\0${authPassword}`, "utf8").digest();
+  const submitted = createHmac("sha256", key).update(`${normalized}\0${password}`, "utf8").digest();
+  const expected = createHmac("sha256", key).update(`${normalizedUsername(authUsername)}\0${authPassword}`, "utf8").digest();
   return timingSafeEqual(submitted, expected);
 }
 
@@ -256,6 +363,26 @@ function recordLoginFailure(ip) {
   const current = loginAttempts.get(ip);
   if (!current || current.resetAt <= now) {
     loginAttempts.set(ip, { count: 1, resetAt: now + loginAttemptWindowMs });
+    return;
+  }
+  current.count += 1;
+}
+
+function registrationLimit(ip) {
+  const now = Date.now();
+  const current = registrationAttempts.get(ip);
+  if (!current || current.resetAt <= now) {
+    registrationAttempts.delete(ip);
+    return null;
+  }
+  return current.count >= maxRegistrationsPerIp ? Math.ceil((current.resetAt - now) / 1000) : null;
+}
+
+function recordRegistration(ip) {
+  const now = Date.now();
+  const current = registrationAttempts.get(ip);
+  if (!current || current.resetAt <= now) {
+    registrationAttempts.set(ip, { count: 1, resetAt: now + registrationWindowMs });
     return;
   }
   current.count += 1;
@@ -292,70 +419,76 @@ async function portableUnprotect(value) {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }
 
-async function manualConfig() {
-  if (manualConfigLoaded) return manualConfigCache;
-  manualConfigLoaded = true;
+async function migrateLegacyConfig(username, targetPath, legacyPath) {
+  if (!authPassword || normalizedUsername(username) !== normalizedUsername(authUsername)) return;
   try {
-    const encrypted = await readFile(manualConfigPath, "utf8");
-    const saved = JSON.parse(await unprotect(encrypted));
-    if (saved?.url && saved?.authorization) {
-      manualConfigCache = { mode: "mcp", ...saved, source: "manual-encrypted" };
-    }
+    await readFile(targetPath);
+    return;
   } catch (error) {
-    if (error.code !== "ENOENT") console.warn(`Unable to read manual SIF config: ${error.message}`);
+    if (error.code !== "ENOENT") throw error;
   }
-  return manualConfigCache;
-}
-
-async function saveManualConfig(config) {
-  const encrypted = await protect(JSON.stringify({ url: config.url, authorization: config.authorization }));
-  await writeFile(manualConfigPath, encrypted, { encoding: "utf8", mode: 0o600 });
-  manualConfigCache = { ...config, source: "manual-encrypted" };
-  manualConfigLoaded = true;
-}
-
-async function clearManualConfig() {
-  manualConfigCache = undefined;
-  manualConfigLoaded = true;
   try {
-    await unlink(manualConfigPath);
+    await mkdir(join(userDataRoot, userStorageId(username)), { recursive: true });
+    await rename(legacyPath, targetPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") console.warn(`Unable to migrate legacy user config: ${error.message}`);
+  }
+}
+
+async function manualConfig(username) {
+  const path = userConfigPath(username, "sif-mcp.enc");
+  await migrateLegacyConfig(username, path, legacyManualConfigPath);
+  try {
+    const saved = JSON.parse(await unprotect(await readFile(path, "utf8")));
+    if (saved?.url && saved?.authorization) return { mode: "mcp", ...saved, source: "manual-encrypted" };
+  } catch (error) {
+    if (error.code !== "ENOENT") console.warn(`Unable to read SIF config for ${userStorageId(username)}: ${error.message}`);
+  }
+  return null;
+}
+
+async function saveManualConfig(username, config) {
+  const directory = join(userDataRoot, userStorageId(username));
+  await mkdir(directory, { recursive: true });
+  const encrypted = await protect(JSON.stringify({ url: config.url, authorization: config.authorization }));
+  await writeFile(join(directory, "sif-mcp.enc"), encrypted, { encoding: "utf8", mode: 0o600 });
+}
+
+async function clearManualConfig(username) {
+  try {
+    await unlink(userConfigPath(username, "sif-mcp.enc"));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
 }
 
-async function aiConfig() {
-  if (aiConfigLoaded) return aiConfigCache;
-  aiConfigLoaded = true;
+async function aiConfig(username) {
+  const path = userConfigPath(username, "ai-model.enc");
+  await migrateLegacyConfig(username, path, legacyAiConfigPath);
   try {
-    const encrypted = await readFile(aiConfigPath, "utf8");
-    const saved = JSON.parse(await unprotect(encrypted));
-    if (saved?.baseUrl && saved?.model && saved?.apiKey) {
-      aiConfigCache = { ...saved, source: "manual-encrypted" };
-    }
+    const saved = JSON.parse(await unprotect(await readFile(path, "utf8")));
+    if (saved?.baseUrl && saved?.model && saved?.apiKey) return { ...saved, source: "manual-encrypted" };
   } catch (error) {
-    if (error.code !== "ENOENT") console.warn(`Unable to read AI model config: ${error.message}`);
+    if (error.code !== "ENOENT") console.warn(`Unable to read AI config for ${userStorageId(username)}: ${error.message}`);
   }
-  return aiConfigCache;
+  return null;
 }
 
-async function saveAiConfig(config) {
+async function saveAiConfig(username, config) {
+  const directory = join(userDataRoot, userStorageId(username));
+  await mkdir(directory, { recursive: true });
   const encrypted = await protect(JSON.stringify({
     provider: config.provider,
     baseUrl: config.baseUrl,
     model: config.model,
     apiKey: config.apiKey
   }));
-  await writeFile(aiConfigPath, encrypted, { encoding: "utf8", mode: 0o600 });
-  aiConfigCache = { ...config, source: "manual-encrypted" };
-  aiConfigLoaded = true;
+  await writeFile(join(directory, "ai-model.enc"), encrypted, { encoding: "utf8", mode: 0o600 });
 }
 
-async function clearAiConfig() {
-  aiConfigCache = undefined;
-  aiConfigLoaded = true;
+async function clearAiConfig(username) {
   try {
-    await unlink(aiConfigPath);
+    await unlink(userConfigPath(username, "ai-model.enc"));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
@@ -470,9 +603,11 @@ function publicConfig(config) {
   };
 }
 
-async function connectionConfig() {
-  const saved = await manualConfig();
+async function connectionConfig(username) {
+  const saved = await manualConfig(username);
   if (saved) return saved;
+
+  if (!authPassword || normalizedUsername(username) !== normalizedUsername(authUsername)) return null;
 
   if (process.env.SIF_MCP_BRIDGE_URL) {
     return {
@@ -1211,9 +1346,9 @@ function matchesSnapshot(query, data) {
     && requested.every((asin, index) => asin === stored[index]);
 }
 
-async function analyze(query) {
+async function analyze(query, username) {
   const data = await snapshot();
-  const config = await connectionConfig();
+  const config = await connectionConfig(username);
 
   if (config?.mode === "bridge") {
     const headers = { "Content-Type": "application/json" };
@@ -1775,8 +1910,8 @@ function sanitizeAiListing(listing, context) {
   };
 }
 
-async function generateAiListing(input) {
-  const config = await aiConfig();
+async function generateAiListing(input, username) {
+  const config = await aiConfig(username);
   if (!config) {
     const error = new Error("请先在右上角完成 AI 模型配置。");
     error.status = 422;
@@ -1891,19 +2026,32 @@ async function serve(req, res) {
 
     if (req.method === "GET" && url.pathname === "/api/auth/status") {
       return json(res, 200, {
-        configured: Boolean(authPassword),
+        configured: true,
+        registrationEnabled: true,
         authenticated: Boolean(authUser),
         username: authUser
       });
     }
 
-    if (req.method === "POST" && url.pathname === "/api/auth/login") {
-      if (!authPassword) {
-        return json(res, 503, {
-          code: "AUTH_NOT_CONFIGURED",
-          message: "服务器尚未配置 APP_PASSWORD，请先在宝塔环境变量中设置登录密码。"
-        });
+    if (req.method === "POST" && url.pathname === "/api/auth/register") {
+      const ip = requestIp(req);
+      const retryAfter = registrationLimit(ip);
+      if (retryAfter) {
+        return json(res, 429, {
+          code: "REGISTRATION_RATE_LIMITED",
+          message: `该网络注册账号过多，请在 ${Math.ceil(retryAfter / 60)} 分钟后重试。`
+        }, { "Retry-After": String(retryAfter) });
       }
+      const input = await body(req);
+      const username = await registerUser(input.username, input.password);
+      recordRegistration(ip);
+      const token = await createSessionToken(username);
+      return json(res, 201, { authenticated: true, username }, {
+        "Set-Cookie": sessionCookie(req, token)
+      });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/auth/login") {
       const ip = requestIp(req);
       const retryAfter = loginLimit(ip);
       if (retryAfter) {
@@ -1913,15 +2061,15 @@ async function serve(req, res) {
         }, { "Retry-After": String(retryAfter) });
       }
       const input = await body(req);
-      const username = String(input.username || "").trim();
+      const username = normalizedUsername(input.username);
       const password = String(input.password || "");
-      if (username.length > 80 || password.length > 256 || !(await validCredentials(username, password))) {
+      if (!validUsername(username) || password.length > 256 || !(await validCredentials(username, password))) {
         recordLoginFailure(ip);
         return json(res, 401, { code: "INVALID_CREDENTIALS", message: "账号或密码不正确。" });
       }
       loginAttempts.delete(ip);
-      const token = await createSessionToken(authUsername);
-      return json(res, 200, { authenticated: true, username: authUsername }, {
+      const token = await createSessionToken(username);
+      return json(res, 200, { authenticated: true, username }, {
         "Set-Cookie": sessionCookie(req, token)
       });
     }
@@ -1941,7 +2089,8 @@ async function serve(req, res) {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return json(res, 200, {
         ok: true,
-        authenticationConfigured: Boolean(authPassword),
+        authenticationConfigured: true,
+        registrationEnabled: true,
         authenticated: Boolean(authUser)
       });
     }
@@ -1964,7 +2113,7 @@ async function serve(req, res) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/config") {
-      return json(res, 200, publicConfig(await connectionConfig()));
+      return json(res, 200, publicConfig(await connectionConfig(authUser)));
     }
 
     if (req.method === "POST" && url.pathname === "/api/config") {
@@ -1989,7 +2138,7 @@ async function serve(req, res) {
         source: "manual-encrypted"
       };
       const serverInfo = await testMcp(config);
-      await saveManualConfig(config);
+      await saveManualConfig(authUser, config);
       return json(res, 200, {
         ...publicConfig(config),
         tested: true,
@@ -1998,18 +2147,18 @@ async function serve(req, res) {
     }
 
     if (req.method === "DELETE" && url.pathname === "/api/config") {
-      await clearManualConfig();
-      return json(res, 200, { cleared: true, fallback: publicConfig(await connectionConfig()) });
+      await clearManualConfig(authUser);
+      return json(res, 200, { cleared: true, fallback: publicConfig(await connectionConfig(authUser)) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/ai-config") {
-      return json(res, 200, publicAiConfig(await aiConfig()));
+      return json(res, 200, publicAiConfig(await aiConfig(authUser)));
     }
 
     if (req.method === "POST" && url.pathname === "/api/ai-config") {
       const input = await body(req);
       const provider = Object.hasOwn(aiPresets, input.provider) ? input.provider : "custom";
-      const current = await aiConfig();
+      const current = await aiConfig(authUser);
       const apiKey = String(input.apiKey || current?.apiKey || "").trim();
       const model = String(input.model || "").trim();
       let baseUrl;
@@ -2025,7 +2174,7 @@ async function serve(req, res) {
         return json(res, 400, { code: "INVALID_AI_KEY", message: "请输入完整的 AI API Key。" });
       }
       const config = { provider, baseUrl, model, apiKey, source: "manual-encrypted" };
-      await saveAiConfig(config);
+      await saveAiConfig(authUser, config);
       try {
         const testReply = await testAiConfig(config);
         return json(res, 200, { ...publicAiConfig(config), tested: true, testReply });
@@ -2040,12 +2189,12 @@ async function serve(req, res) {
     }
 
     if (req.method === "DELETE" && url.pathname === "/api/ai-config") {
-      await clearAiConfig();
+      await clearAiConfig(authUser);
       return json(res, 200, { cleared: true, config: publicAiConfig(null) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/ai-generate") {
-      return json(res, 200, await generateAiListing(await body(req)));
+      return json(res, 200, await generateAiListing(await body(req), authUser));
     }
 
     if (req.method === "POST" && url.pathname === "/api/analyze") {
@@ -2053,7 +2202,7 @@ async function serve(req, res) {
       if (!Array.isArray(query.asins) || query.asins.length === 0) {
         return json(res, 400, { code: "ASIN_REQUIRED", message: "请至少输入 1 个 ASIN。" });
       }
-      return json(res, 200, await analyze(query));
+      return json(res, 200, await analyze(query, authUser));
     }
 
     if (req.method !== "GET") return json(res, 405, { message: "Method not allowed" });
@@ -2067,7 +2216,7 @@ async function serve(req, res) {
 }
 
 if (!authPassword) {
-  console.warn("APP_PASSWORD is not configured; the application will remain locked until a server login password is set.");
+  console.info("APP_PASSWORD is not configured; the environment administrator login is disabled, but user registration remains available.");
 }
 
 createServer(serve).listen(port, host, () => {

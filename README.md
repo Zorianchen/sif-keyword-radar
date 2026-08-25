@@ -20,11 +20,11 @@ npm start
 
 项目无第三方运行依赖，只使用 Node.js 内置模块。
 
-## 登录保护
+## 多用户登录与注册
 
-主页面、静态资源和业务 API 默认全部需要登录，只有 `/login`、`/api/auth/*` 与 `/api/health` 可匿名访问。账号由 `APP_USERNAME` 设置，密码由 `APP_PASSWORD` 设置；密码不会写入项目、浏览器存储或 GitHub。登录成功后服务端签发 12 小时有效的签名 HttpOnly Cookie，连续失败 8 次会限制该 IP 15 分钟。
+主页面、静态资源和业务 API 默认全部需要登录，只有 `/login`、`/api/auth/*` 与 `/api/health` 可匿名访问。登录页同时支持登录与注册。注册密码使用独立随机盐和 `scrypt` 哈希后保存到 `data/users.local.json`，不会保存明文；登录成功后服务端签发 12 小时有效的签名 HttpOnly Cookie，连续失败 8 次会限制该 IP 15 分钟。
 
-`APP_PASSWORD` 未设置时应用保持锁定，任何人都无法进入主页面。会话签名密钥与 SIF/AI 加密配置共用服务器本机的 `data/config-secret.local`，迁移服务器时需要一起备份。
+`APP_USERNAME` / `APP_PASSWORD` 是可选的原管理员账号，用于兼容已有部署；即使未设置 `APP_PASSWORD`，新用户仍可在登录页注册。每个用户的 SIF MCP 与 AI Key 都加密保存在 `data/users/<用户哈希>/` 独立目录，查询历史也按用户名使用不同的浏览器存储键。会话签名密钥与 SIF/AI 加密配置共用服务器本机的 `data/config-secret.local`，迁移服务器时需要一起备份。
 
 ## SIF MCP 配置
 
@@ -38,7 +38,7 @@ url = "https://mcp.sif.com/mcp"
 
 认证头仍保留在 Codex 配置中，服务端只在请求 SIF 时读取，不会通过 API 下发给浏览器，也不会复制到项目文件。默认 ASIN 组合直接使用最近一次已验证快照；输入其他 ASIN 时调用 SIF MCP 实时反查。
 
-也可以点击页面右上角的「MCP 配置」，直接输入 SIF MCP Key。官方服务地址固定为 `https://mcp.sif.com/mcp`，网站会先验证连接，再加密保存到 `data/sif-mcp.local.enc`。Windows 默认使用当前用户的 DPAPI；Linux 首次保存时会自动生成 `data/config-secret.local`，并用 AES-256-GCM 加密。API 不会回显 Key，这两个本机文件均已加入 `.gitignore`。
+也可以点击页面右上角的「MCP 配置」，直接输入 SIF MCP Key。官方服务地址固定为 `https://mcp.sif.com/mcp`，网站会先验证连接，再按当前登录用户加密保存到 `data/users/<用户哈希>/sif-mcp.enc`。Windows 默认使用当前用户的 DPAPI；Linux 首次保存时会自动生成 `data/config-secret.local`，并用 AES-256-GCM 加密。API 不会回显 Key，这些本机文件均已加入 `.gitignore`。
 
 如需改用自建 HTTP Bridge，可用环境变量覆盖：
 
@@ -81,7 +81,7 @@ Bridge 应返回与 `data/live-snapshot.json` 同结构的数据。密钥只放�
 - Kimi：`https://api.moonshot.cn/v1` / `kimi-k3`
 - 自定义：任意可信的公网 HTTPS Base URL 和模型名称
 
-配置时会进行一次最小模型调用，验证成功后使用与 SIF 配置相同的系统加密方式保存到 `data/ai-model.local.enc`。Key 不会由配置查询接口回显。生成 Listing 时只发送当前查询的商品参数、已验证关键词、趋势数据与竞品标题。
+配置时会进行一次最小模型调用，验证后使用与 SIF 配置相同的系统加密方式保存到当前用户的 `data/users/<用户哈希>/ai-model.enc`。Key 不会由配置查询接口回显，也不会被其他账号读取。生成 Listing 时只发送当前查询的商品参数、已验证关键词、趋势数据与竞品标题。
 
 AI 成稿包含目标站点语言标题、五点、产品描述和后台 Search Terms。服务端会复核指定的高相关流量词；缺失时先要求模型修正，仍缺失的词会补入后台 Search Terms。前端会高亮所有命中的流量词并显示搜索量和嵌入位置。
 
@@ -94,9 +94,9 @@ Google Trends 官方 API 目前处于申请制 Alpha。网站暂以 SIF 周搜�
 1. 服务器安装 Node.js 20 或更高版本，并在 `/www/wwwroot` 克隆本仓库。
 2. 添加 Node 项目时，项目目录设为 `/www/wwwroot/sif-keyword-radar`。宝塔会读取 `package.json`，启动选项直接选择自动出现的 `start: node server.mjs`。
 3. Node 版本选择已安装的 v22，运行用户选择 `www`，包管理器选择 `npm`。项目没有第三方依赖，可以勾选“不安装 node_modules”。
-4. 项目端口填写 `8088`（避开服务器上已经使用的端口）。应用默认监听 `0.0.0.0:8088`；如宝塔提供环境变量设置，可显式填写 `HOST=0.0.0.0`、`PORT=8088`、`APP_USERNAME` 和 `APP_PASSWORD`。不要把真实密码写入 `.env.example` 或代码。
+4. 项目端口填写 `8088`（避开服务器上已经使用的端口）。应用默认监听 `0.0.0.0:8088`；如宝塔提供环境变量设置，可显式填写 `HOST=0.0.0.0`、`PORT=8088`，并可用 `APP_USERNAME` 和 `APP_PASSWORD` 保留一个环境管理员账号。不要把真实密码写入 `.env.example` 或代码。
 5. 确保 `www` 用户对 `data/` 目录有写权限，然后启动项目。首次登录后，在右上角「MCP 配置」和「AI 模型」中自行输入 Key，服务器会自动创建本机加密密钥。
 6. 在腾讯云安全组和宝塔防火墙中放行 TCP `8088`，然后直接访问 `http://119.29.247.91:8088/`。
 7. 生产环境仍建议绑定域名并启用 SSL/HTTPS；直接使用 HTTP 会明文传输登录密码和 SIF/AI Key，不适合长期使用。
 
-`data/config-secret.local` 与两个 `.enc` 文件是一套，迁移或重装时要一起备份；丢失本机密钥后，已保存的 SIF/AI Key 无法解密，只能重新输入。高级用户仍可通过至少 32 字符的 `SIF_CONFIG_SECRET` 固定主密钥，但普通宝塔部署不需要设置。`.env.example` 只提供变量名称，不包含任何真实密钥。
+`data/config-secret.local`、`data/users.local.json` 与 `data/users/` 是一套，迁移或重装时要一起备份；丢失本机密钥后，已保存的 SIF/AI Key 无法解密，只能重新输入。旧版 `data/sif-mcp.local.enc` 和 `data/ai-model.local.enc` 会在原环境管理员首次访问时自动迁移到其独立目录。高级用户仍可通过至少 32 字符的 `SIF_CONFIG_SECRET` 固定主密钥，但普通宝塔部署不需要设置。`.env.example` 只提供变量名称，不包含任何真实密钥。

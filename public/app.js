@@ -46,7 +46,7 @@ const configSourceLabels = {
   environment: "环境变量 · 已连接",
   null: "尚未配置"
 };
-const historyStorageKey = "sif-query-history-v1";
+let historyStorageKey = "sif-query-history-v2:pending";
 const nonTranslationLabels = new Set(["标题核心词", "五点长尾词", "产品相关词", "语义补充词", "品牌或低相关词"]);
 const listingTemplatePolicies = {
   operator: { label: "运营现行模板", title: 200, bullet: 500, description: 2000, searchTermChars: 500 },
@@ -1788,6 +1788,14 @@ function bindSectionObserver() {
 }
 
 async function init() {
+  const authStatus = await fetch("/api/auth/status").then((response) => response.json());
+  if (!authStatus.authenticated || !authStatus.username) {
+    window.location.replace("/login");
+    return;
+  }
+  historyStorageKey = `sif-query-history-v2:${encodeURIComponent(String(authStatus.username).toLowerCase())}`;
+  $("#current-user").textContent = authStatus.username;
+  $("#logout-button").title = `退出账号 ${authStatus.username}`;
   document.documentElement.dataset.theme = localStorage.getItem("sif-theme") || "light";
   const currentMonth = isoDate(new Date()).slice(0, 7);
   $("#period-month").value = currentMonth;

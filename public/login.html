@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta name="description" content="SIF Keyword Radar 安全登录" />
     <title>登录 · SIF Keyword Radar</title>
-    <link rel="stylesheet" href="/login.css?v=1" />
+    <link rel="stylesheet" href="/login.css?v=2" />
   </head>
   <body>
     <div class="login-grid" aria-hidden="true"></div>
@@ -22,36 +22,46 @@
         <div class="story-copy">
           <p class="story-eyebrow"><span>SECURE / ACCESS</span><i></i>Amazon 关键词情报工作台</p>
           <h1 id="login-heading">先验证身份，<br /><em>再进入流量雷达。</em></h1>
-          <p class="story-summary">查询历史、SIF MCP Key 与 AI 模型配置都保存在你的服务器中。登录后才可访问主页面和业务接口。</p>
+          <p class="story-summary">每个账号都有独立的查询历史、SIF MCP Key 与 AI 模型配置。登录或注册后，进入只属于你的关键词工作台。</p>
         </div>
 
         <div class="story-security">
           <span>01</span>
-          <p><strong>服务器端会话保护。</strong> 登录状态使用签名 Cookie，不在浏览器保存账号密码。</p>
+          <p><strong>账号与配置相互隔离。</strong> 密码只保存加盐哈希，Key 加密后按用户独立存储，登录状态使用 HttpOnly 签名 Cookie。</p>
         </div>
       </section>
 
       <section class="login-card" aria-label="账号登录">
         <div class="card-index">AUTH / 01</div>
         <div class="card-heading">
-          <div><span>WELCOME BACK</span><h2>登录工作台</h2></div>
+          <div><span id="auth-eyebrow">WELCOME BACK</span><h2 id="auth-title">登录工作台</h2></div>
           <div class="card-lock" aria-hidden="true"><i></i></div>
+        </div>
+
+        <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+          <button class="active" type="button" role="tab" aria-selected="true" data-auth-mode="login">登录账号</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-mode="register">注册账号</button>
         </div>
 
         <form id="login-form" autocomplete="on" novalidate>
           <label for="username"><span>账号</span><small>USERNAME</small></label>
-          <input id="username" name="username" type="text" value="yusen" autocomplete="username" maxlength="80" required />
+          <input id="username" name="username" type="text" autocomplete="username" minlength="3" maxlength="32" placeholder="3–32 位字母或数字" required />
 
           <label for="password"><span>密码</span><small>PASSWORD</small></label>
           <div class="password-field">
-            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required />
+            <input id="password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required />
             <button id="password-toggle" type="button" aria-label="显示密码">显示</button>
           </div>
 
-          <p class="login-message" id="login-message" role="status" aria-live="polite">请输入服务器设置的登录账号和密码。</p>
+          <div class="register-only" id="confirm-password-field" hidden>
+            <label for="confirm-password"><span>确认密码</span><small>CONFIRM</small></label>
+            <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" />
+          </div>
+
+          <p class="login-message" id="login-message" role="status" aria-live="polite">请输入账号和密码。</p>
 
           <button class="login-submit" id="login-submit" type="submit">
-            <span>进入工作台</span><b aria-hidden="true">→</b>
+            <span id="auth-submit-label">进入工作台</span><b aria-hidden="true">→</b>
           </button>
         </form>
 
@@ -61,6 +71,6 @@
       </section>
     </main>
 
-    <script type="module" src="/login.js?v=1"></script>
+    <script type="module" src="/login.js?v=2"></script>
   </body>
 </html>

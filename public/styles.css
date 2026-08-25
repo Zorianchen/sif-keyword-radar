@@ -95,6 +95,9 @@ a { color: inherit; }
 .top-actions { display: flex; align-items: center; gap: 16px; }
 .connection { display: flex; align-items: center; gap: 9px; font: 600 10px/1 var(--mono); letter-spacing: .07em; color: var(--ink-soft); }
 .connection i { width: 8px; height: 8px; border-radius: 50%; background: #57b987; box-shadow: 0 0 0 4px color-mix(in srgb, #57b987 18%, transparent); animation: pulse 2s infinite; }
+.user-badge { height: 38px; padding: 0 11px; display: inline-flex; align-items: center; gap: 7px; border-left: 1px solid var(--line); color: var(--ink-soft); font-family: var(--mono); }
+.user-badge small { color: var(--orange); font-size: 7px; font-weight: 750; letter-spacing: .1em; }
+.user-badge b { max-width: 105px; overflow: hidden; color: var(--ink); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .config-button { height: 38px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); color: var(--ink); background: transparent; font-size: 11px; font-weight: 700; }
 .config-button:hover { color: var(--paper); background: var(--green); border-color: var(--green); }
 .config-button svg { width: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; }
@@ -640,6 +643,7 @@ footer p { color: var(--ink-soft); font-size: 11px; }
   .shell { width: min(100% - 28px, 1420px); }
   .topbar { height: 68px; padding-inline: 15px; }
   .connection b { display: none; }
+  .user-badge { display: none; }
   .config-button span { display: none; }
   .config-button { width: 38px; padding: 0; justify-content: center; }
   .history-open b { position: absolute; margin: -27px 0 0 27px; border: 1px solid var(--paper); }
