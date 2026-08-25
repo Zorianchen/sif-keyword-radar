@@ -418,16 +418,12 @@
         <div class="config-heading">
           <div>
             <h2 id="config-title">SIF MCP 配置</h2>
-            <p>手动 Key 将优先于 Codex 配置，用于新的 ASIN 实时查询。</p>
+            <p>官方服务地址已固定，只需输入 Key，即可用于新的 ASIN 实时查询。</p>
           </div>
           <span class="config-state" id="config-state"><i></i>正在读取</span>
         </div>
 
         <form id="config-form" autocomplete="off">
-          <div class="field full">
-            <label for="mcp-url">服务地址 <span>仅允许 SIF 官方地址</span></label>
-            <input id="mcp-url" name="url" value="https://mcp.sif.com/mcp" inputmode="url" spellcheck="false" />
-          </div>
           <div class="field full">
             <label for="mcp-key">SIF MCP Key <span>不会回显或写入前端存储</span></label>
             <div class="secret-field">
@@ -438,7 +434,7 @@
 
           <div class="config-security">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
-            <div><strong>本机加密保存</strong><p>Key 只发送到 127.0.0.1，由 Windows 当前用户加密；浏览器 API 永远只返回“已保存”。</p></div>
+            <div><strong>服务端本机加密保存</strong><p>Windows 使用当前用户加密；Linux 首次保存时自动生成本机密钥。浏览器 API 永远不会回显 Key。</p></div>
           </div>
 
           <div class="config-actions">
@@ -494,7 +490,7 @@
 
           <div class="config-security ai-security">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V7a5 5 0 0 1 10 0v3M5 10h14v10H5z"/></svg>
-            <div><strong>Key 本机加密，生成时直连所选供应商</strong><p>Key 由 Windows 当前用户加密保存，不回显到浏览器。自定义地址会收到你的商品参数、关键词和竞品标题，请只配置可信服务。</p></div>
+            <div><strong>Key 服务端本机加密，生成时直连所选供应商</strong><p>Windows 使用当前用户加密；Linux 自动生成本机密钥。自定义地址会收到商品参数、关键词和竞品标题，请只配置可信服务。</p></div>
           </div>
 
           <div class="config-actions">

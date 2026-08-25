@@ -11,7 +11,8 @@ const publicRoot = join(root, "public");
 const snapshotPath = join(root, "data", "live-snapshot.json");
 const manualConfigPath = join(root, "data", "sif-mcp.local.enc");
 const aiConfigPath = join(root, "data", "ai-model.local.enc");
-const port = Number(process.env.PORT || 4173);
+const portableSecretPath = join(root, "data", "config-secret.local");
+const port = Number(process.env.PORT || 4188);
 const portableConfigPrefix = "aesgcm:v1:";
 let manualConfigCache;
 let manualConfigLoaded = false;
@@ -75,10 +76,7 @@ function powershell(input, script) {
 }
 
 async function protect(value) {
-  if (process.env.SIF_CONFIG_SECRET) return portableProtect(value);
-  if (process.platform !== "win32") {
-    throw new Error("Linux 服务器需设置至少 32 个字符的 SIF_CONFIG_SECRET 环境变量后才能保存 Key。");
-  }
+  if (process.env.SIF_CONFIG_SECRET || process.platform !== "win32") return portableProtect(value);
   const script = "$plain=[Console]::In.ReadToEnd(); Add-Type -AssemblyName System.Security; $bytes=[Text.Encoding]::UTF8.GetBytes($plain); $protected=[Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Out.Write([Convert]::ToBase64String($protected))";
   return powershell(value, script);
 }
@@ -92,27 +90,53 @@ async function unprotect(value) {
   return powershell(value, script);
 }
 
-function portableConfigKey() {
-  const secret = String(process.env.SIF_CONFIG_SECRET || "");
-  if (secret.length < 32) throw new Error("SIF_CONFIG_SECRET 至少需要 32 个字符。");
+async function portableConfigSecret() {
+  const environmentSecret = String(process.env.SIF_CONFIG_SECRET || "").trim();
+  if (environmentSecret) {
+    if (environmentSecret.length < 32) throw new Error("SIF_CONFIG_SECRET 至少需要 32 个字符。");
+    return environmentSecret;
+  }
+
+  try {
+    const savedSecret = (await readFile(portableSecretPath, "utf8")).trim();
+    if (savedSecret.length < 32) throw new Error("服务器本机加密密钥无效，请恢复 data/config-secret.local 的备份。");
+    return savedSecret;
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+
+  const generatedSecret = randomBytes(32).toString("base64url");
+  try {
+    await writeFile(portableSecretPath, `${generatedSecret}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    return generatedSecret;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const savedSecret = (await readFile(portableSecretPath, "utf8")).trim();
+    if (savedSecret.length < 32) throw new Error("服务器本机加密密钥无效，请恢复 data/config-secret.local 的备份。");
+    return savedSecret;
+  }
+}
+
+async function portableConfigKey() {
+  const secret = await portableConfigSecret();
   return createHash("sha256").update(secret, "utf8").digest();
 }
 
-function portableProtect(value) {
+async function portableProtect(value) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", portableConfigKey(), iv);
+  const cipher = createCipheriv("aes-256-gcm", await portableConfigKey(), iv);
   const ciphertext = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
   const payload = Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64");
   return `${portableConfigPrefix}${payload}`;
 }
 
-function portableUnprotect(value) {
+async function portableUnprotect(value) {
   const payload = Buffer.from(String(value).slice(portableConfigPrefix.length), "base64");
   if (payload.length < 29) throw new Error("加密配置文件格式无效。");
   const iv = payload.subarray(0, 12);
   const tag = payload.subarray(12, 28);
   const ciphertext = payload.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", portableConfigKey(), iv);
+  const decipher = createDecipheriv("aes-256-gcm", await portableConfigKey(), iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }

@@ -1,5 +1,6 @@
 data/sif-mcp.local.enc
 data/ai-model.local.enc
+data/config-secret.local
 node_modules/
 *.log
 .env

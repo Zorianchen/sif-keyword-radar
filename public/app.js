@@ -354,7 +354,6 @@ function setConfigMessage(message, tone = "normal") {
 
 async function refreshConfigStatus() {
   const config = await fetch("/api/config").then((response) => response.json());
-  $("#mcp-url").value = config.url || "https://mcp.sif.com/mcp";
   $("#config-state").innerHTML = `<i></i>${escapeHTML(configSourceLabels[config.source] || "已连接")}`;
   $("#config-state").classList.toggle("offline", !config.configured);
   $("#config-reset").hidden = !config.keyStored;
@@ -398,7 +397,7 @@ async function saveConfig(event) {
     const response = await fetch("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: $("#mcp-url").value.trim(), apiKey })
+      body: JSON.stringify({ url: "https://mcp.sif.com/mcp", apiKey })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.message || "配置保存失败。");

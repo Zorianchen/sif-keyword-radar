@@ -13,7 +13,7 @@
 npm start
 ```
 
-然后打开 <http://127.0.0.1:4173>。
+然后打开 <http://127.0.0.1:4188>。
 
 项目无第三方运行依赖，只使用 Node.js 内置模块。
 
@@ -29,7 +29,7 @@ url = "https://mcp.sif.com/mcp"
 
 认证头仍保留在 Codex 配置中，服务端只在请求 SIF 时读取，不会通过 API 下发给浏览器，也不会复制到项目文件。默认 ASIN 组合直接使用最近一次已验证快照；输入其他 ASIN 时调用 SIF MCP 实时反查。
 
-也可以点击页面右上角的「MCP 配置」，手动输入 SIF MCP Key。网站会先验证连接，再加密保存到 `data/sif-mcp.local.enc`；Windows 默认使用当前用户的 DPAPI，Linux 使用 `SIF_CONFIG_SECRET` 派生的 AES-256-GCM 密钥。API 不会回显 Key，该文件也已加入 `.gitignore`。
+也可以点击页面右上角的「MCP 配置」，直接输入 SIF MCP Key。官方服务地址固定为 `https://mcp.sif.com/mcp`，网站会先验证连接，再加密保存到 `data/sif-mcp.local.enc`。Windows 默认使用当前用户的 DPAPI；Linux 首次保存时会自动生成 `data/config-secret.local`，并用 AES-256-GCM 加密。API 不会回显 Key，这两个本机文件均已加入 `.gitignore`。
 
 如需改用自建 HTTP Bridge，可用环境变量覆盖：
 
@@ -83,17 +83,11 @@ Google Trends 官方 API 目前处于申请制 Alpha。网站暂以 SIF 周搜�
 建议使用宝塔「Node 项目」管理器和 Nginx 反向代理：
 
 1. 服务器安装 Node.js 20 或更高版本，并在 `/www/wwwroot` 克隆本仓库。
-2. 项目目录设为 `/www/wwwroot/sif-keyword-radar`，启动命令设为 `npm start`，项目端口设为 `4173`。
-3. 在宝塔 Node 项目的环境变量中设置：
+2. 添加 Node 项目时，项目目录设为 `/www/wwwroot/sif-keyword-radar`。宝塔会读取 `package.json`，启动选项直接选择自动出现的 `start: node server.mjs`。
+3. Node 版本选择已安装的 v22，运行用户选择 `www`，包管理器选择 `npm`。项目没有第三方依赖，可以勾选“不安装 node_modules”。
+4. 项目内部端口填写 `4188`（避开你服务器上已经使用过的 4173、4174 和 4317）。普通单机部署无需填写任何环境变量；应用会在首次保存 SIF 或 AI Key 时自动创建本机加密密钥。
+5. 确保 `www` 用户对 `data/` 目录有写权限，然后启动项目。首次打开网站后，在右上角「MCP 配置」中只需输入 SIF Key。
+6. 对外访问端口不要与内部端口重复。例如让 Nginx 监听 `119.29.247.91:8088`，反向代理到 `http://127.0.0.1:4188`，访问地址就是 `http://119.29.247.91:8088`。腾讯云安全组只需放行 `8088`，不要放行内部端口 `4188`。
+7. 生产环境建议使用域名、SSL 和 HTTPS。该网站可以调用付费 AI/SIF 接口，必须在宝塔中为站点配置访问密码或其他身份验证，不能直接匿名公开。
 
-   ```text
-   NODE_ENV=production
-   PORT=4173
-   SIF_CONFIG_SECRET=至少32字符且部署后保持不变的随机主密钥
-   ```
-
-4. 将域名反向代理到 `http://127.0.0.1:4173`。应用只监听本机回环地址，不需要在腾讯云安全组开放 `4173`。
-5. 给站点申请 SSL，并强制 HTTPS。该网站可以调用付费 AI/SIF 接口，必须在宝塔中为站点配置访问密码或其他身份验证，不能直接匿名公开。
-6. 确保运行 Node 项目的系统用户对 `data/` 目录有写权限。首次打开网站后，在右上角重新输入 SIF 和 AI Key；Windows 生成的 DPAPI 文件不能迁移到 Linux。
-
-如果更换 `SIF_CONFIG_SECRET`，服务器上已保存的两个 `.enc` 配置将无法解密，需要删除后重新配置。`.env.example` 只提供变量名称，不包含任何真实密钥。
+`data/config-secret.local` 与两个 `.enc` 文件是一套，迁移或重装时要一起备份；丢失本机密钥后，已保存的 SIF/AI Key 无法解密，只能重新输入。高级用户仍可通过至少 32 字符的 `SIF_CONFIG_SECRET` 固定主密钥，但普通宝塔部署不需要设置。`.env.example` 只提供变量名称，不包含任何真实密钥。
